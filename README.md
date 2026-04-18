@@ -42,7 +42,7 @@ Example response:
 - `APP_ENV` (default: `development`)
 - `HTTP_PORT` (default: `8080`)
 
-## Suggested Next Layers
+##  Next Layers
 
 1. Add database adapter in `internal/repository`.
 2. Add domain-specific use cases in `internal/service`.
