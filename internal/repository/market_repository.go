@@ -6,9 +6,92 @@ import (
 	"time"
 
 	"github.com/al4nzh/pollingservice.git/internal/models"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// SnipedDeal represents a good deal found by the sniper
+type SnipedDeal struct {
+    ID             int64
+    ListingID      string
+    AppID          int
+    MarketHashName string
+    DisplayName    string
+    Price          float64
+    DiscountFromRef    float64
+    DiscountFromSecond float64
+    Reason         string
+    CapturedAt     time.Time
+}
+
+// SaveSnipedDeal saves a good deal found by the sniper
+func (r *MarketRepository) SaveSnipedDeal(ctx context.Context, eval interface{}) error {
+	e, ok := eval.(interface {
+		ListingID() string
+		AppID() int
+		MarketHashName() string
+		DisplayName() string
+		DealPrice() float64
+		DealDiscountFromRef() float64
+		DealDiscountFromSecond() float64
+		DealReason() string
+	})
+    if !ok {
+        return fmt.Errorf("invalid evaluation type")
+    }
+
+    query := `
+        INSERT INTO sniped_deals (
+            listing_id, app_id, market_hash_name, display_name, price, discount_from_ref, discount_from_second, reason, captured_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (listing_id) DO NOTHING
+    `
+    _, err := r.pool.Exec(ctx, query,
+        e.ListingID(),
+		e.AppID(),
+		e.MarketHashName(),
+		e.DisplayName(),
+		e.DealPrice(),
+		e.DealDiscountFromRef(),
+		e.DealDiscountFromSecond(),
+		e.DealReason(),
+        time.Now(),
+    )
+    if err != nil {
+        return fmt.Errorf("save sniped deal: %w", err)
+    }
+    return nil
+}
+
+// GetSnipedDeals returns all good deals since a given time
+func (r *MarketRepository) GetSnipedDeals(ctx context.Context, since time.Time) ([]SnipedDeal, error) {
+    query := `
+        SELECT listing_id, app_id, market_hash_name, display_name, price, discount_from_ref, discount_from_second, reason, captured_at
+        FROM sniped_deals
+        WHERE captured_at >= $1
+        ORDER BY captured_at DESC
+    `
+    rows, err := r.pool.Query(ctx, query, since)
+    if err != nil {
+        return nil, fmt.Errorf("get sniped deals: %w", err)
+    }
+    defer rows.Close()
+
+	var deals []SnipedDeal
+    for rows.Next() {
+        var d SnipedDeal
+        err := rows.Scan(&d.ListingID, &d.AppID, &d.MarketHashName, &d.DisplayName, &d.Price, &d.DiscountFromRef, &d.DiscountFromSecond, &d.Reason, &d.CapturedAt)
+        if err != nil {
+            return nil, fmt.Errorf("scan sniped deal: %w", err)
+        }
+        deals = append(deals, d)
+    }
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sniped deals: %w", err)
+	}
+
+    return deals, nil
+}
 
 type MarketRepository struct {
 	pool *pgxpool.Pool
